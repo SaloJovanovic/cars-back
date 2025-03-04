@@ -26,6 +26,7 @@ const PROXY_TEST_INTERVAL = 30000; // 30 sekundi za testiranje novih proxy serve
 let workingProxies = []; // Lista proxy-ja koji rade
 let isProxyTestRunning = false; // Flag da li je testiranje proxy-ja u toku
 let proxyTestQueue = []; // Red za testiranje proxy servera
+let proxyUsageCount = {}; // Brojač korišćenja svakog proxy-ja
 
 // Funkcija za dohvatanje svežih proxy servera
 const fetchFreshProxies = async () => {
@@ -139,16 +140,18 @@ const testProxiesFromQueue = async () => {
   }
   
   isProxyTestRunning = true;
-  console.log(`Testiram ${proxyTestQueue.length} proxy servera iz reda...`);
   
-  // Uzimamo prvih 10 proxy servera iz reda za testiranje
-  const batchSize = 10;
+  // Uzimamo veći broj proxy servera iz reda za testiranje
+  const batchSize = 50; // Povećavamo sa 10 na 50
   const proxiesToTest = proxyTestQueue.splice(0, batchSize);
   
-  for (const proxy of proxiesToTest) {
+  console.log(`Testiram ${proxiesToTest.length} proxy servera paralelno...`);
+  
+  // Testiramo sve proxy servere paralelno
+  const testPromises = proxiesToTest.map(async (proxy) => {
     // Preskačemo proxy servere koji su već u radnoj listi
     if (workingProxies.includes(proxy)) {
-      continue;
+      return;
     }
     
     const isWorking = await checkProxy(proxy);
@@ -158,14 +161,21 @@ const testProxiesFromQueue = async () => {
         if (workingProxies.length === 1 && workingProxies[0] === 'direct') {
           // Ako je jedini proxy 'direct', zamenjujemo ga
           workingProxies = [proxy];
+          // Inicijalizujemo brojač korišćenja
+          proxyUsageCount = { [proxy]: 0 };
           console.log(`Pronađen radni proxy! Prelazim sa direktne konekcije na proxy.`);
         } else {
           workingProxies.push(proxy);
+          // Inicijalizujemo brojač korišćenja za novi proxy
+          proxyUsageCount[proxy] = 0;
           console.log(`Dodat novi radni proxy. Ukupno radnih: ${workingProxies.length}`);
         }
       }
     }
-  }
+  });
+  
+  // Čekamo da se svi testovi završe
+  await Promise.all(testPromises);
   
   isProxyTestRunning = false;
   
@@ -187,8 +197,10 @@ const initializeWorkingProxies = async () => {
     return;
   }
   
-  // Testiramo samo prvih 50 proxy servera da ne bismo preopteretili sistem
-  const proxiesToTest = proxyList.slice(0, 50);
+  // Testiramo veći broj proxy servera paralelno
+  const proxiesToTest = proxyList.slice(0, 100); // Povećavamo sa 50 na 100
+  
+  console.log(`Paralelno testiram ${proxiesToTest.length} proxy servera...`);
   
   const checkPromises = proxiesToTest.map(proxy => 
     checkProxy(proxy)
@@ -207,8 +219,8 @@ const initializeWorkingProxies = async () => {
   }
   
   // Dodajemo ostatak proxy servera u red za testiranje
-  if (proxyList.length > 50) {
-    const remainingProxies = proxyList.slice(50);
+  if (proxyList.length > 100) {
+    const remainingProxies = proxyList.slice(100);
     proxyTestQueue.push(...remainingProxies);
     
     // Pokrenemo testiranje u pozadini
@@ -224,6 +236,12 @@ const getNextProxy = () => {
   
   const proxy = workingProxies[currentProxyIndex];
   currentProxyIndex = (currentProxyIndex + 1) % workingProxies.length;
+  
+  // Povećavamo brojač korišćenja za ovaj proxy
+  if (proxy !== 'direct') {
+    proxyUsageCount[proxy] = (proxyUsageCount[proxy] || 0) + 1;
+  }
+  
   return proxy;
 };
 
@@ -248,7 +266,8 @@ const fetchCarAds = async () => {
     if (proxyUrl === 'direct') {
       console.warn(`UPOZORENJE: Koristim direktnu konekciju bez proxy-ja! Postoji rizik od blokiranja.`);
     } else {
-      console.log(`Korišćenje proxy servera: ${proxyUrl}`);
+      const usageCount = proxyUsageCount[proxyUrl] || 0;
+      console.log(`Korišćenje proxy servera: ${proxyUrl} (korišćen ${usageCount} puta)`);
     }
     
     const agent = createProxyAgent(proxyUrl);
@@ -306,6 +325,8 @@ const fetchCarAds = async () => {
       if (failedProxy !== 'direct') {
         console.log(`Uklanjam neispravan proxy: ${failedProxy}`);
         workingProxies = workingProxies.filter(p => p !== failedProxy);
+        // Uklanjamo brojač korišćenja za uklonjeni proxy
+        delete proxyUsageCount[failedProxy];
       }
       
       if (workingProxies.length === 0) {
@@ -381,11 +402,17 @@ app.get("/refresh-proxies", async (req, res) => {
 app.get("/proxy-stats", (req, res) => {
   const isUsingDirect = workingProxies.includes('direct') && workingProxies.length === 1;
   
+  // Pripremamo listu radnih proxija sa brojem korišćenja
+  const workingProxiesWithUsage = workingProxies.map(proxy => ({
+    url: proxy,
+    usageCount: proxyUsageCount[proxy] || 0
+  }));
+  
   res.json({
     total: proxyList.length,
     working: workingProxies.length,
     current: workingProxies[currentProxyIndex] || 'direct',
-    workingList: workingProxies,
+    workingList: workingProxiesWithUsage,
     currentApi: PROXY_API_URLS[currentApiIndex],
     queuedForTesting: proxyTestQueue.length,
     isTestingRunning: isProxyTestRunning,
