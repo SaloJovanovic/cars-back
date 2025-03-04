@@ -16,13 +16,16 @@ const PROXY_API_URLS = [
 ];
 let currentApiIndex = 0; // Indeks trenutnog API-ja za rotaciju
 
-let proxyList = []; // Lista proxy servera
+let proxyList = []; // Lista svih proxy servera
 let currentProxyIndex = 0;
 let cachedCars = [];
 const FETCH_INTERVAL = 3000; // 3 sekunde za dohvatanje automobila
 const PROXY_TIMEOUT = 5000; // 5 sekundi za timeout proxy-ja
-const PROXY_REFRESH_INTERVAL = 1800000; // 30 minuta za osvežavanje proxy liste
+const PROXY_REFRESH_INTERVAL = 300000; // 5 minuta za osvežavanje proxy liste
+const PROXY_TEST_INTERVAL = 30000; // 30 sekundi za testiranje novih proxy servera
 let workingProxies = []; // Lista proxy-ja koji rade
+let isProxyTestRunning = false; // Flag da li je testiranje proxy-ja u toku
+let proxyTestQueue = []; // Red za testiranje proxy servera
 
 // Funkcija za dohvatanje svežih proxy servera
 const fetchFreshProxies = async () => {
@@ -61,9 +64,13 @@ const fetchFreshProxies = async () => {
       
       console.log(`Dodato ${newProxies.length} novih proxy servera. Ukupno: ${proxyList.length}`);
       
-      // Resetujemo listu radnih proxy-ja da bi se ponovo testirali
-      workingProxies = [];
-      await initializeWorkingProxies();
+      // Dodajemo nove proxy servere u red za testiranje
+      proxyTestQueue.push(...newProxies);
+      
+      // Pokrenemo testiranje ako nije već u toku
+      if (!isProxyTestRunning) {
+        testProxiesFromQueue();
+      }
       
       return true;
     } else {
@@ -74,8 +81,9 @@ const fetchFreshProxies = async () => {
         return await fetchFreshProxies();
       } else {
         console.warn("Nijedan API nije vratio proxy servere. Koristiću direktnu konekciju.");
-        proxyList = [];
-        workingProxies = ['direct'];
+        if (workingProxies.length === 0) {
+          workingProxies = ['direct'];
+        }
         return false;
       }
     }
@@ -89,9 +97,10 @@ const fetchFreshProxies = async () => {
       return await fetchFreshProxies();
     }
     
-    console.warn("Koristiću direktnu konekciju.");
-    proxyList = [];
-    workingProxies = ['direct'];
+    console.warn("Koristiću direktnu konekciju ako nema radnih proxy servera.");
+    if (workingProxies.length === 0) {
+      workingProxies = ['direct'];
+    }
     return false;
   }
 };
@@ -123,6 +132,51 @@ const checkProxy = async (proxyUrl) => {
   }
 };
 
+// Funkcija za testiranje proxy servera iz reda
+const testProxiesFromQueue = async () => {
+  if (isProxyTestRunning || proxyTestQueue.length === 0) {
+    return;
+  }
+  
+  isProxyTestRunning = true;
+  console.log(`Testiram ${proxyTestQueue.length} proxy servera iz reda...`);
+  
+  // Uzimamo prvih 10 proxy servera iz reda za testiranje
+  const batchSize = 10;
+  const proxiesToTest = proxyTestQueue.splice(0, batchSize);
+  
+  for (const proxy of proxiesToTest) {
+    // Preskačemo proxy servere koji su već u radnoj listi
+    if (workingProxies.includes(proxy)) {
+      continue;
+    }
+    
+    const isWorking = await checkProxy(proxy);
+    if (isWorking) {
+      // Dodajemo radni proxy u listu radnih proxy-ja
+      if (!workingProxies.includes(proxy)) {
+        if (workingProxies.length === 1 && workingProxies[0] === 'direct') {
+          // Ako je jedini proxy 'direct', zamenjujemo ga
+          workingProxies = [proxy];
+          console.log(`Pronađen radni proxy! Prelazim sa direktne konekcije na proxy.`);
+        } else {
+          workingProxies.push(proxy);
+          console.log(`Dodat novi radni proxy. Ukupno radnih: ${workingProxies.length}`);
+        }
+      }
+    }
+  }
+  
+  isProxyTestRunning = false;
+  
+  // Ako ima još proxy servera u redu, nastavljamo testiranje
+  if (proxyTestQueue.length > 0) {
+    setTimeout(testProxiesFromQueue, 1000); // Pauza od 1 sekunde između batch-eva
+  } else {
+    console.log(`Završeno testiranje proxy servera. Ukupno radnih: ${workingProxies.length}`);
+  }
+};
+
 // Funkcija za inicijalizaciju radnih proxy-ja
 const initializeWorkingProxies = async () => {
   console.log("Proveravam proxy servere...");
@@ -150,6 +204,15 @@ const initializeWorkingProxies = async () => {
   if (workingProxies.length === 0) {
     console.warn("Nijedan proxy ne radi! Koristiću direktnu konekciju.");
     workingProxies = ['direct']; // Specijalna vrednost za direktnu konekciju
+  }
+  
+  // Dodajemo ostatak proxy servera u red za testiranje
+  if (proxyList.length > 50) {
+    const remainingProxies = proxyList.slice(50);
+    proxyTestQueue.push(...remainingProxies);
+    
+    // Pokrenemo testiranje u pozadini
+    setTimeout(testProxiesFromQueue, 1000);
   }
 };
 
@@ -182,7 +245,11 @@ app.use(cors());
 const fetchCarAds = async () => {
   try {
     const proxyUrl = getNextProxy();
-    console.log(`Korišćenje proxy servera: ${proxyUrl}`);
+    if (proxyUrl === 'direct') {
+      console.warn(`UPOZORENJE: Koristim direktnu konekciju bez proxy-ja! Postoji rizik od blokiranja.`);
+    } else {
+      console.log(`Korišćenje proxy servera: ${proxyUrl}`);
+    }
     
     const agent = createProxyAgent(proxyUrl);
     const options = {
@@ -233,13 +300,19 @@ const fetchCarAds = async () => {
     // Ako je proxy problem, označimo ga kao neispravan i probajmo ponovo sa drugim
     if (error.message.includes('ECONNREFUSED') || 
         error.message.includes('ETIMEDOUT') || 
-        error.message.includes('ECONNRESET')) {
+        error.message.includes('ECONNRESET') ||
+        error.message.includes('EPROTO')) {
       const failedProxy = getNextProxy();
-      console.log(`Uklanjam neispravan proxy: ${failedProxy}`);
-      workingProxies = workingProxies.filter(p => p !== failedProxy);
+      if (failedProxy !== 'direct') {
+        console.log(`Uklanjam neispravan proxy: ${failedProxy}`);
+        workingProxies = workingProxies.filter(p => p !== failedProxy);
+      }
       
       if (workingProxies.length === 0) {
         console.warn("Svi proxy serveri su neispravni! Pokušavam ponovo inicijalizaciju...");
+        
+        // Pokušavamo da dohvatimo nove proxy servere
+        await fetchFreshProxies();
         initializeWorkingProxies();
       }
     }
@@ -266,6 +339,14 @@ const startPeriodicFetching = () => {
     console.log("Osvežavam listu proxy servera...");
     await fetchFreshProxies();
   }, PROXY_REFRESH_INTERVAL);
+  
+  // Postavljanje intervala za periodično testiranje proxy servera iz reda
+  setInterval(() => {
+    if (!isProxyTestRunning && proxyTestQueue.length > 0) {
+      console.log("Pokrećem testiranje proxy servera iz reda...");
+      testProxiesFromQueue();
+    }
+  }, PROXY_TEST_INTERVAL);
 };
 
 app.get("/cars", async (req, res) => {
@@ -291,18 +372,24 @@ app.get("/refresh-proxies", async (req, res) => {
   res.json({ 
     success, 
     totalProxies: proxyList.length,
-    workingProxies: workingProxies.length
+    workingProxies: workingProxies.length,
+    queuedProxies: proxyTestQueue.length
   });
 });
 
 // Endpoint za prikaz statistike proxy servera
 app.get("/proxy-stats", (req, res) => {
+  const isUsingDirect = workingProxies.includes('direct') && workingProxies.length === 1;
+  
   res.json({
     total: proxyList.length,
     working: workingProxies.length,
-    current: workingProxies[currentProxyIndex],
+    current: workingProxies[currentProxyIndex] || 'direct',
     workingList: workingProxies,
-    currentApi: PROXY_API_URLS[currentApiIndex]
+    currentApi: PROXY_API_URLS[currentApiIndex],
+    queuedForTesting: proxyTestQueue.length,
+    isTestingRunning: isProxyTestRunning,
+    status: isUsingDirect ? 'UPOZORENJE: Koristi se direktna konekcija!' : 'OK'
   });
 });
 
