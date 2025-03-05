@@ -299,11 +299,31 @@ const fetchCarAds = async () => {
       const extractedId = id.match(/\d+$/)[0];
       const title = $(element).find("h3").text().trim();
       const price = $(element).find("[data-testid^='search-result-entry-price']").text().trim();
-      const location = $(element).find("[data-testid^='search-result-entry-location']").text().trim();
+      
+      // Ekstrakcija adrese
+      const locationElement = $(element).find("[data-testid^='search-result-entry-location']");
+      const location = locationElement.text().trim();
+      
+      // Kreiranje Google Maps linka
+      const googleMapsLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+      
+      // Kreiranje klasičnog Google search linka
+      const googleSearchLink = `https://www.google.com/search?q=${encodeURIComponent(location)}`;
+      
       const image = $(element).find("img.ResponsiveImage-sc-17bk1i9-0").attr("src");
       const link = `${baseUrl}${title.toLowerCase().replace(/\s+/g, "-")}-${extractedId}/#ad-contact-form-container`;
 
-      cars.push({ id, title, price, location, image, link });
+      cars.push({ 
+        id, 
+        title, 
+        price, 
+        location, 
+        address: location, // Dodajemo adresu kao posebno polje
+        googleMapsLink, // Dodajemo Google Maps link
+        googleSearchLink, // Dodajemo klasičan Google search link
+        image, 
+        link 
+      });
     });
 
     console.log(`Pronađeno ${cars.length} automobila`);
