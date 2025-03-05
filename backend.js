@@ -7,7 +7,7 @@ import { SocksProxyAgent } from 'socks-proxy-agent';
 
 const app = express();
 const PORT = 5001;
-const url = "https://www.willhaben.at/iad/gebrauchtwagen/auto/gebrauchtwagenboerse?sfId=6bc718a3-598a-4308-b98e-10c829d0730c&isNavigation=true&rows=30&page=1&sort=1&PRICE_TO=12000";
+const url = "https://www.willhaben.at/iad/gebrauchtwagen/auto/gebrauchtwagenboerse?sfId=6bc718a3-598a-4308-b98e-10c829d0730c&isNavigation=true&rows=30&sort=1&DEALER=1&page=1&PRICE_TO=12000";
 
 // URL-ovi za dohvatanje svežih proxy servera
 const PROXY_API_URLS = [
