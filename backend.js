@@ -258,6 +258,53 @@ const createProxyAgent = (proxyUrl) => {
   }
 };
 
+// Funkcija za dohvatanje detaljne adrese iz stranice sa detaljima oglasa
+const fetchDetailedAddress = async (detailUrl, proxyUrl) => {
+  try {
+    console.log(`Dohvatam detaljnu adresu sa: ${detailUrl}`);
+    
+    const agent = createProxyAgent(proxyUrl);
+    const options = {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Connection': 'keep-alive',
+        'Cache-Control': 'max-age=0'
+      }
+    };
+    
+    if (agent) {
+      options.agent = agent;
+    }
+    
+    const response = await fetch(detailUrl, options);
+    const text = await response.text();
+    const $ = cheerio.load(text);
+    
+    // Tražimo element sa adresom
+    const addressBox = $('[data-testid="top-contact-box-address-box"]');
+    if (addressBox.length > 0) {
+      // Uzimamo sve tekstualne elemente iz adresnog boksa
+      const addressParts = [];
+      addressBox.find('.Text-sc-10o2fdq-0').each((i, element) => {
+        addressParts.push($(element).text().trim());
+      });
+      
+      // Spajamo delove adrese
+      const fullAddress = addressParts.join(', ');
+      console.log(`Pronađena detaljna adresa: ${fullAddress}`);
+      return fullAddress;
+    } else {
+      console.warn(`Nije pronađena detaljna adresa za: ${detailUrl}`);
+      return null;
+    }
+  } catch (error) {
+    console.error(`Greška pri dohvatanju detaljne adrese: ${error.message}`);
+    return null;
+  }
+};
+
 app.use(cors());
 
 const fetchCarAds = async () => {
@@ -290,7 +337,7 @@ const fetchCarAds = async () => {
     const text = await response.text();
     const $ = cheerio.load(text);
     const cars = [];
-    const baseUrl = "https://www.willhaben.at/iad/gebrauchtwagen/d/auto/";
+    const baseUrl = "https://www.willhaben.at";
 
     $("a[data-testid^='search-result-entry-header']").each((i, element) => {
       const id = $(element).attr("id") || $(element).attr("data-testid");
@@ -300,33 +347,49 @@ const fetchCarAds = async () => {
       const title = $(element).find("h3").text().trim();
       const price = $(element).find("[data-testid^='search-result-entry-price']").text().trim();
       
-      // Ekstrakcija adrese
+      // Ekstrakcija adrese iz liste (koristićemo je kao fallback)
       const locationElement = $(element).find("[data-testid^='search-result-entry-location']");
       const location = locationElement.text().trim();
       
-      // Kreiranje Google Maps linka
-      const googleMapsLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
-      
-      // Kreiranje klasičnog Google search linka
-      const googleSearchLink = `https://www.google.com/search?q=${encodeURIComponent(location)}`;
+      // Dobijanje linka ka detaljima oglasa
+      const detailPath = $(element).attr("href");
+      const detailUrl = `${baseUrl}${detailPath}`;
       
       const image = $(element).find("img.ResponsiveImage-sc-17bk1i9-0").attr("src");
-      const link = `${baseUrl}${title.toLowerCase().replace(/\s+/g, "-")}-${extractedId}/#ad-contact-form-container`;
 
       cars.push({ 
         id, 
         title, 
         price, 
-        location, 
-        address: location, // Dodajemo adresu kao posebno polje
-        googleMapsLink, // Dodajemo Google Maps link
-        googleSearchLink, // Dodajemo klasičan Google search link
-        image, 
-        link 
+        location, // Privremena adresa iz liste
+        detailUrl, // URL ka detaljima oglasa
+        image
       });
     });
 
     console.log(`Pronađeno ${cars.length} automobila`);
+    
+    // Dohvatamo detaljne adrese za svaki oglas (maksimalno 5 paralelno da ne preopteretimo server)
+    const batchSize = 5;
+    for (let i = 0; i < cars.length; i += batchSize) {
+      const batch = cars.slice(i, i + batchSize);
+      const addressPromises = batch.map(car => fetchDetailedAddress(car.detailUrl, proxyUrl));
+      const addresses = await Promise.all(addressPromises);
+      
+      // Dodajemo detaljne adrese i linkove za pretragu
+      for (let j = 0; j < batch.length; j++) {
+        const car = batch[j];
+        const detailedAddress = addresses[j];
+        
+        // Koristimo detaljnu adresu ako je dostupna, inače koristimo adresu iz liste
+        const finalAddress = detailedAddress || car.location;
+        
+        // Dodajemo adresu i linkove za pretragu
+        car.address = finalAddress;
+        car.googleMapsLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(finalAddress)}`;
+        car.googleSearchLink = `https://www.google.com/search?q=${encodeURIComponent(finalAddress)}`;
+      }
+    }
     
     // Ažuriranje keširanih podataka
     if (cars.length > 0) {
