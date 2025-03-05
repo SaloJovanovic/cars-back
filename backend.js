@@ -301,7 +301,7 @@ const fetchCarAds = async () => {
       const price = $(element).find("[data-testid^='search-result-entry-price']").text().trim();
       const location = $(element).find("[data-testid^='search-result-entry-location']").text().trim();
       const image = $(element).find("img.ResponsiveImage-sc-17bk1i9-0").attr("src");
-      const link = `${baseUrl}${title.toLowerCase().replace(/\s+/g, "-")}-${extractedId}/`;
+      const link = `${baseUrl}${title.toLowerCase().replace(/\s+/g, "-")}-${extractedId}/#ad-contact-form-container`;
 
       cars.push({ id, title, price, location, image, link });
     });
