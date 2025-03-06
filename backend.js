@@ -30,9 +30,16 @@ let lastProxyRequestTime = 0;
 let proxyList = []; // Lista svih proxy servera
 let currentProxyIndex = 0;
 let cachedCars = [];
+<<<<<<< HEAD
 const FETCH_INTERVAL = 3000; // 3 sekunde za dohvatanje automobila
 const PROXY_TIMEOUT = 20000; // 20 sekundi za timeout proxy-ja
 const PROXY_REFRESH_INTERVAL = 3600000; // 1 sat za osvežavanje proxy liste (povećano jer su plaćeni proxy serveri)
+=======
+const FETCH_INTERVAL = 2500; // 3 sekunde za dohvatanje automobila
+const PROXY_TIMEOUT = 5000; // 5 sekundi za timeout proxy-ja
+const PROXY_REFRESH_INTERVAL = 300000; // 5 minuta za osvežavanje proxy liste
+const PROXY_TEST_INTERVAL = 30000; // 30 sekundi za testiranje novih proxy servera
+>>>>>>> v11
 let workingProxies = []; // Lista proxy-ja koji rade
 let proxyUsageCount = {}; // Brojač korišćenja svakog proxy-ja
 
@@ -411,6 +418,7 @@ const fetchCarAds = async () => {
             return;
           }
 
+<<<<<<< HEAD
           const idMatch = id.match(/\d+$/);
           if (!idMatch) {
             console.warn(`Preskačem element sa nevalidnim ID-om: ${id}`);
@@ -458,6 +466,33 @@ const fetchCarAds = async () => {
         } catch (error) {
           console.error(`Greška pri obradi oglasa: ${error.message}`);
         }
+=======
+      const extractedId = id.match(/\d+$/)[0];
+      const title = $(element).find("h3").text().trim();
+      const price = $(element).find("[data-testid^='search-result-entry-price']").text().trim();
+      
+      // Ekstrakcija adrese iz liste (koristićemo je kao fallback)
+      const locationElement = $(element).find("[data-testid^='search-result-entry-location']");
+      const location = locationElement.text().trim();
+      
+      // Dobijanje linka ka detaljima oglasa
+      const detailPath = $(element).attr("href");
+      const detailUrl = `${baseUrl}${detailPath}`;
+
+      const link = `${baseUrl}/iad/gebrauchtwagen/d/auto/${title.toLowerCase().replace(/\s+/g, "-")}-${extractedId}/#ad-contact-form-container`;
+
+      
+      const image = $(element).find("img.ResponsiveImage-sc-17bk1i9-0").attr("src");
+
+      cars.push({ 
+        id, 
+        title, 
+        price, 
+        location, // Privremena adresa iz liste
+        detailUrl, // URL ka detaljima oglasa
+        image,
+        link
+>>>>>>> v11
       });
     }
 
