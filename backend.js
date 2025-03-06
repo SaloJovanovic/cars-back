@@ -19,7 +19,7 @@ let currentApiIndex = 0; // Indeks trenutnog API-ja za rotaciju
 let proxyList = []; // Lista svih proxy servera
 let currentProxyIndex = 0;
 let cachedCars = [];
-const FETCH_INTERVAL = 3000; // 3 sekunde za dohvatanje automobila
+const FETCH_INTERVAL = 2500; // 3 sekunde za dohvatanje automobila
 const PROXY_TIMEOUT = 5000; // 5 sekundi za timeout proxy-ja
 const PROXY_REFRESH_INTERVAL = 300000; // 5 minuta za osvežavanje proxy liste
 const PROXY_TEST_INTERVAL = 30000; // 30 sekundi za testiranje novih proxy servera
@@ -354,6 +354,9 @@ const fetchCarAds = async () => {
       // Dobijanje linka ka detaljima oglasa
       const detailPath = $(element).attr("href");
       const detailUrl = `${baseUrl}${detailPath}`;
+
+      const link = `${baseUrl}/iad/gebrauchtwagen/d/auto/${title.toLowerCase().replace(/\s+/g, "-")}-${extractedId}/#ad-contact-form-container`;
+
       
       const image = $(element).find("img.ResponsiveImage-sc-17bk1i9-0").attr("src");
 
@@ -363,7 +366,8 @@ const fetchCarAds = async () => {
         price, 
         location, // Privremena adresa iz liste
         detailUrl, // URL ka detaljima oglasa
-        image
+        image,
+        link
       });
     });
 
