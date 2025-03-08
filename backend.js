@@ -13,10 +13,6 @@ const url = "https://www.willhaben.at/iad/gebrauchtwagen/auto/gebrauchtwagenboer
 // URL za dohvatanje plaćenih proxy servera
 const PAID_PROXY_API_URL = "https://api.proxyscrape.com/v2/account/datacenter_shared/proxy-list?auth=16791c81jgzqofaeyh3s&type=getproxies&country[]=all&protocol=http&format=json&status=online";
 
-// Dodajte konstante za korisničko ime i lozinku
-const PROXY_USERNAME = 'mistermarko4002@gmail.com';
-const PROXY_PASSWORD = 'Marko2004';
-
 // Ograničenja API-ja
 const API_RATE_LIMIT = {
   REQUESTS_PER_SECOND: 4,
@@ -39,7 +35,7 @@ let proxyUsageCount = {}; // Brojač korišćenja svakog proxy-ja
 // Konstanta za ProxyScrape API ključ
 const ProxyScrapeAPIKey = '16791c81jgzqofaeyh3s'; // Tvoj API ključ
 
-// Privremeno koristi fetch umesto axios-a
+// Funkcija za dohvatanje podataka preko ProxyScrape API-ja
 const fetchWithProxyScrape = async (targetUrl) => {
   try {
     console.log(`Dohvatam podatke sa ${targetUrl} preko ProxyScrape API-ja`);
@@ -103,8 +99,6 @@ const fetchPaidProxies = async () => {
     // Format odgovora je: [["ip:port", "HTTP", "Online", "country_code"], ...]
     const proxies = data.data.map(proxyData => {
       const ipPort = proxyData[0]; // Prvi element je "ip:port"
-      // Vraćamo samo IP:PORT bez autentifikacije u URL-u
-      // Autentifikacija će biti dodata u createProxyAgent funkciji
       return `http://${ipPort}`;
     });
     
@@ -119,8 +113,8 @@ const fetchPaidProxies = async () => {
     // Ažuriranje liste proxy servera
     proxyList = proxies;
     
-    // Postavi direktnu konekciju kao prvi izbor
-    workingProxies = ['direct', ...proxies];
+    // Postavi proxy servere kao prvi izbor, a direktnu konekciju kao poslednju opciju
+    workingProxies = [...proxies.filter(p => p !== 'direct'), 'direct'];
     
     // Resetovanje indeksa trenutnog proxy-ja
     currentProxyIndex = 0;
@@ -164,27 +158,10 @@ const createProxyAgent = (proxyUrl) => {
   }
   
   try {
-    // Izvlačimo IP i port iz proxy URL-a
-    const urlParts = proxyUrl.split('://');
-    if (urlParts.length !== 2) {
-      throw new Error('Neispravan format proxy URL-a');
-    }
+    console.log(`Kreiranje proxy agenta za: ${proxyUrl}`);
     
-    const protocol = urlParts[0];
-    const address = urlParts[1];
-    
-    // Kreiramo opcije za proxy agent
-    const options = {
-      host: address.split(':')[0],
-      port: address.split(':')[1],
-      protocol: `${protocol}:`,
-      auth: `${PROXY_USERNAME}:${PROXY_PASSWORD}`
-    };
-    
-    console.log(`Kreiranje proxy agenta za: ${protocol}://${address} sa autentifikacijom`);
-    
-    // Koristimo HttpsProxyAgent sa opcijama
-    return new HttpsProxyAgent(options);
+    // Koristimo HttpsProxyAgent direktno sa URL-om, bez dodatne autentifikacije
+    return new HttpsProxyAgent(proxyUrl);
   } catch (error) {
     console.error(`Greška pri kreiranju proxy agenta: ${error.message}`);
     return null;
@@ -303,32 +280,25 @@ const fetchCarAds = async () => {
     
     console.log(`Dohvatam oglase sa URL-a: ${url}`);
     
-    // Koristimo ProxyScrape API umesto direktnog zahteva
-    const htmlContent = await fetchWithProxyScrape(url);
+    // Koristimo direktan zahtev umesto ProxyScrape API
+    const fetchPromise = fetch(url, options);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Timeout pri dohvatanju oglasa')), PROXY_TIMEOUT)
+    );
+    
+    const response = await Promise.race([fetchPromise, timeoutPromise]);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP greška: ${response.status} ${response.statusText}`);
+    }
+    
+    const htmlContent = await response.text();
     
     console.log(`Dohvaćen HTML sadržaj (${htmlContent.length} karaktera)`);
     
     // Sačuvajmo HTML za analizu
     fs.writeFileSync('last_response.html', htmlContent);
     console.log("HTML sadržaj je sačuvan u fajl 'last_response.html' za analizu.");
-    
-    // Provera da li HTML sadrži poruku o grešci sa proxy-jem
-    if (htmlContent.includes("Proxy Authentication Required") || htmlContent.includes("407 Proxy Authentication Required")) {
-      console.error("HTML sadrži poruku o grešci sa proxy autentifikacijom.");
-      
-      // Uklanjamo problematični proxy iz liste radnih proxy-ja
-      workingProxies = workingProxies.filter(p => p !== proxyUrl);
-      
-      // Ako nema više radnih proxy-ja, dodajemo direktnu konekciju
-      if (workingProxies.length === 0) {
-        console.warn("Nema više radnih proxy servera, koristim direktnu konekciju.");
-        workingProxies = ['direct'];
-        currentProxyIndex = 0;
-      }
-      
-      // Pokušavamo ponovo sa drugim proxy-jem
-      return await fetchCarAds();
-    }
     
     const $ = cheerio.load(htmlContent);
     const cars = [];
